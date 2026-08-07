@@ -35,8 +35,12 @@ with col4:
                                    help="200일선 계산 + 백테스트에 쓰일 과거 데이터 기간입니다.")
     lookback_days = lookback_options[lookback_label]
 with col5:
-    only_above_ma = st.checkbox("현재 이평선 위(매수 상태) 종목만 표시", value=True,
-                                 help="끄면 이평선 아래(현금 상태) 종목도 함께 표시하되, 여전히 CAGR 순으로 정렬됩니다.")
+    min_deviation_pct = st.slider(
+        "이격도 하한선 (%)", min_value=-30, max_value=20, value=-5, step=1,
+        help="0%면 이평선 위 종목만. 음수로 낮추면 이평선 바로 아래(돌파 임박 후보)까지 포함됩니다. "
+             "기본값 -5%는 이평선 대비 -5%~위 구간의 종목을 모두 포함(돌파 임박 종목까지 기본 포착).",
+    )
+    min_deviation = min_deviation_pct / 100
 
 run = st.button("스크리닝 실행", type="primary")
 
@@ -93,8 +97,7 @@ else:
     st.success(f"유니버스 구성 완료: {result['n_universe']}개 종목 중 {len(full)}개 백테스트 완료")
 
     display_df = full.copy()
-    if only_above_ma:
-        display_df = display_df[display_df["above_ma"] == True]
+    display_df = display_df[display_df["deviation"] >= min_deviation]
     display_df = display_df.sort_values("cagr", ascending=False).reset_index(drop=True)
     top_k_df = display_df.head(int(k))
 

@@ -265,7 +265,10 @@ def run_ma_backtest(prices: pd.Series, ma_window: int = MA_WINDOW, initial_capit
 # ------------------------------------------------------------------
 # 4. 전체 파이프라인: 유니버스 전종목에 MA 백테스트 적용 후 스크리닝
 # ------------------------------------------------------------------
-def run_screener(country: str, n: int, k: int, lookback_days: int = 1095, only_above_ma: bool = True):
+def run_screener(country: str, n: int, k: int, lookback_days: int = 1095, min_deviation: float = -0.05):
+    """
+    min_deviation: 이격도(현재가/이평선 - 1) 하한선. 예: 0.0 -> 이평선 위만, -0.05 -> 이평선 대비 -5%까지 포함(돌파 임박 후보 포함)
+    """
     universe = get_universe(country, n)
     print(f"[1/3] 유니버스 구성 완료: {country} 시가총액 상위 {len(universe)}개")
 
@@ -294,8 +297,7 @@ def run_screener(country: str, n: int, k: int, lookback_days: int = 1095, only_a
     df = pd.DataFrame(results)
     df = df.merge(universe[["ticker", "name", "market_cap"]], on="ticker", how="left")
 
-    if only_above_ma:
-        df = df[df["above_ma"] == True]
+    df = df[df["deviation"] >= min_deviation]
 
     df = df.sort_values("cagr", ascending=False).reset_index(drop=True)
     print(f"[3/3] 스크리닝 완료: 조건 충족 {len(df)}개 종목")
@@ -313,14 +315,15 @@ def main():
     parser.add_argument("--n", type=int, default=100, help="시가총액 상위 몇 개를 후보군으로 볼지 (기본 100)")
     parser.add_argument("--k", type=int, default=10, help="최종 몇 개 종목을 선별할지 (기본 10)")
     parser.add_argument("--lookback-days", type=int, default=1095, help="가격 데이터 조회 기간(일, 기본 3년)")
-    parser.add_argument("--include-below-ma", action="store_true",
-                         help="현재 이평선 아래인 종목도 포함 (기본은 위인 종목만)")
+    parser.add_argument("--min-deviation", type=float, default=-0.05,
+                         help="이격도 하한선(소수, 예: -0.05 = -5%%). 기본 -0.05(돌파 임박 종목까지 기본 포함). "
+                              "이평선 위만 보려면 0.0으로 설정")
     parser.add_argument("--out", default="ma_screener_result.csv")
     args = parser.parse_args()
 
     top_k, full, _ = run_screener(args.country, args.n, args.k,
                                    lookback_days=args.lookback_days,
-                                   only_above_ma=not args.include_below_ma)
+                                   min_deviation=args.min_deviation)
 
     print("\n" + "=" * 80)
     print(f"200일선 스크리너 결과 상위 {len(top_k)}개 ({args.country}, 후보군 {args.n}개 중)")
