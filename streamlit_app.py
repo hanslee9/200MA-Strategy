@@ -178,7 +178,16 @@ else:
         current_price_val = series.iloc[-1]
         st.caption(f"현재가: {current_price_val:,.0f} (이평선은 전체 데이터로 정확히 계산, 화면 표시만 {chart_period_label} 구간으로 축소)")
 
-        detail_selection = alt.selection_point(fields=["구분"], bind="legend", toggle=True)
+        # 차트 범례 클릭 대신, 체크박스로 강조 항목을 직접 선택 (브라우저별 클릭 동작 차이 없이 확실하게 토글됨)
+        series_options = ["종가"] + [f"{label} 이평선" for label in ma_windows]
+        highlighted = st.multiselect(
+            "강조해서 볼 항목 선택 (기본: 전체 표시)",
+            options=series_options, default=series_options, key=f"detail_highlight_{selected_ticker}",
+            help="원하는 항목만 남기고 나머지를 지우면, 남긴 항목만 진하게 강조되고 나머지는 흐리게 표시됩니다. "
+                 "예: '종가'와 '200일 이평선'만 남기면 둘만 비교하기 쉬워집니다.",
+        )
+        detail_long["강조"] = detail_long["구분"].isin(highlighted).map({True: 1.0, False: 0.12})
+
         detail_chart = (
             alt.Chart(detail_long)
             .mark_line()
@@ -188,15 +197,13 @@ else:
                 y=alt.Y("값:Q", title="가격", scale=alt.Scale(zero=False)),
                 color=alt.Color("구분:N", title="구분",
                                  sort=["종가", "20일 이평선", "100일 이평선", "200일 이평선"]),
-                opacity=alt.condition(detail_selection, alt.value(1), alt.value(0.1)),
+                opacity=alt.Opacity("강조:Q", legend=None, scale=alt.Scale(domain=[0, 1], range=[0, 1])),
                 size=alt.Size("굵기:Q", legend=None, scale=alt.Scale(domain=[1.2, 2.5], range=[1.2, 2.5])),
                 tooltip=["날짜:T", "구분:N", alt.Tooltip("값:Q", format=",.0f")],
             )
-            .add_params(detail_selection)
             .properties(height=400)
             .interactive()
         )
-        st.caption("💡 범례를 클릭할 때마다 해당 선의 강조 여부가 토글됩니다 (예: 종가와 200일 이평선만 눌러서 비교 가능)")
         st.altair_chart(detail_chart, use_container_width=True)
 
     # --- 자산곡선 차트 (상위 K개) ---
@@ -208,8 +215,16 @@ else:
     chart_long = chart_df.reset_index().melt(id_vars=chart_df.index.name or "index", var_name="종목", value_name="평가금액")
     chart_long = chart_long.rename(columns={chart_df.index.name or "index": "날짜"})
 
+    # 범례 클릭 대신 체크박스로 강조 종목을 직접 선택 (확실한 토글, 10개 종목이 뭉쳐 보일 때 특히 유용)
+    equity_series_options = chart_df.columns.tolist()
+    equity_highlighted = st.multiselect(
+        "강조해서 볼 종목 선택 (기본: 전체 표시)",
+        options=equity_series_options, default=equity_series_options, key="equity_highlight",
+        help="2~3개만 남기면 그 종목들만 진하게 강조되어 비교하기 쉬워집니다.",
+    )
+    chart_long["강조"] = chart_long["종목"].isin(equity_highlighted).map({True: 1.0, False: 0.08})
+
     y_scale = alt.Scale(type="log") if log_scale else alt.Scale(type="linear")
-    legend_selection = alt.selection_point(fields=["종목"], bind="legend", toggle=True)
     line_chart = (
         alt.Chart(chart_long)
         .mark_line()
@@ -218,11 +233,9 @@ else:
                     axis=alt.Axis(format="%Y-%m", tickCount="month", labelAngle=0, grid=True, gridDash=[])),
             y=alt.Y("평가금액:Q", scale=y_scale, title="평가금액"),
             color=alt.Color("종목:N", title="종목"),
-            opacity=alt.condition(legend_selection, alt.value(1), alt.value(0.08)),
+            opacity=alt.Opacity("강조:Q", legend=None, scale=alt.Scale(domain=[0, 1], range=[0, 1])),
             tooltip=["날짜:T", "종목:N", alt.Tooltip("평가금액:Q", format=",.0f")],
         )
-        .add_params(legend_selection)
         .interactive()
     )
-    st.caption("💡 범례를 클릭할 때마다 해당 선의 강조 여부가 토글됩니다 (여러 개 클릭해 동시에 강조 가능)")
     st.altair_chart(line_chart, use_container_width=True)
