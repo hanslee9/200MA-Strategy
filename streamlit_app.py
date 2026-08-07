@@ -93,6 +93,7 @@ if result is None:
 else:
     full = result["full"].copy()
     equity_curves = result["equity_curves"]
+    price_matrix = result["price_matrix"]
 
     st.success(f"유니버스 구성 완료: {result['n_universe']}개 종목 중 {len(full)}개 백테스트 완료")
 
