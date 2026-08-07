@@ -149,18 +149,34 @@ else:
         series = price_matrix[selected_ticker].dropna()
         ma_windows = {"5일": 5, "20일": 20, "100일": 100, "200일": 200}
 
-        detail_df = pd.DataFrame({"날짜": series.index, "가격": "종가", "값": series.values})
-        detail_df = detail_df.rename(columns={"가격": "구분"})
+        # 이평선은 전체 데이터로 정확히 계산한 뒤, 화면에는 최근 구간만 잘라서 보여준다
+        # (200일선은 최근 200거래일 데이터가 있어야 값이 나오므로, 계산은 항상 전체 시리즈로 먼저 수행)
+        chart_period_options = {"6개월": 126, "1년 (기본)": 252, "3년": 756, "전체": None}
+        chart_period_label = st.selectbox("차트 표시 기간", options=list(chart_period_options.keys()), index=1)
+        display_days = chart_period_options[chart_period_label]
+
+        ma_full = {label: series.rolling(w).mean() for label, w in ma_windows.items()}
+
+        if display_days is not None and len(series) > display_days:
+            cutoff_date = series.index[-display_days]
+        else:
+            cutoff_date = series.index[0]
+
+        display_series = series[series.index >= cutoff_date]
+        detail_df = pd.DataFrame({"날짜": display_series.index, "구분": "종가", "값": display_series.values})
         chart_parts = [detail_df]
-        for label, w in ma_windows.items():
-            ma_series = series.rolling(w).mean().dropna()
+        for label in ma_windows:
+            ma_series = ma_full[label].dropna()
+            ma_series = ma_series[ma_series.index >= cutoff_date]
+            if ma_series.empty:
+                continue
             part = pd.DataFrame({"날짜": ma_series.index, "구분": f"{label} 이평선", "값": ma_series.values})
             chart_parts.append(part)
 
         detail_long = pd.concat(chart_parts, ignore_index=True)
 
         current_price_val = series.iloc[-1]
-        st.caption(f"현재가: {current_price_val:,.0f}")
+        st.caption(f"현재가: {current_price_val:,.0f} (이평선은 전체 데이터로 정확히 계산, 화면 표시만 {chart_period_label} 구간으로 축소)")
 
         detail_selection = alt.selection_point(fields=["구분"], bind="legend")
         detail_chart = (
