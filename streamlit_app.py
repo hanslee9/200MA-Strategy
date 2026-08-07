@@ -147,7 +147,7 @@ else:
 
     if selected_ticker:
         series = price_matrix[selected_ticker].dropna()
-        ma_windows = {"5일": 5, "20일": 20, "100일": 100, "200일": 200}
+        ma_windows = {"20일": 20, "100일": 100, "200일": 200}  # 5일선은 큰 의미가 없어 제외
 
         # 이평선은 전체 데이터로 정확히 계산한 뒤, 화면에는 최근 구간만 잘라서 보여준다
         # (200일선은 최근 200거래일 데이터가 있어야 값이 나오므로, 계산은 항상 전체 시리즈로 먼저 수행)
@@ -163,14 +163,14 @@ else:
             cutoff_date = series.index[0]
 
         display_series = series[series.index >= cutoff_date]
-        detail_df = pd.DataFrame({"날짜": display_series.index, "구분": "종가", "값": display_series.values})
+        detail_df = pd.DataFrame({"날짜": display_series.index, "구분": "종가", "값": display_series.values, "굵기": 2.5})
         chart_parts = [detail_df]
         for label in ma_windows:
             ma_series = ma_full[label].dropna()
             ma_series = ma_series[ma_series.index >= cutoff_date]
             if ma_series.empty:
                 continue
-            part = pd.DataFrame({"날짜": ma_series.index, "구분": f"{label} 이평선", "값": ma_series.values})
+            part = pd.DataFrame({"날짜": ma_series.index, "구분": f"{label} 이평선", "값": ma_series.values, "굵기": 1.2})
             chart_parts.append(part)
 
         detail_long = pd.concat(chart_parts, ignore_index=True)
@@ -178,23 +178,25 @@ else:
         current_price_val = series.iloc[-1]
         st.caption(f"현재가: {current_price_val:,.0f} (이평선은 전체 데이터로 정확히 계산, 화면 표시만 {chart_period_label} 구간으로 축소)")
 
-        detail_selection = alt.selection_point(fields=["구분"], bind="legend")
+        detail_selection = alt.selection_point(fields=["구분"], bind="legend", toggle=True)
         detail_chart = (
             alt.Chart(detail_long)
             .mark_line()
             .encode(
-                x=alt.X("날짜:T", title="날짜"),
+                x=alt.X("날짜:T", title="날짜",
+                        axis=alt.Axis(format="%Y-%m", tickCount="month", labelAngle=0, grid=True, gridDash=[])),
                 y=alt.Y("값:Q", title="가격", scale=alt.Scale(zero=False)),
                 color=alt.Color("구분:N", title="구분",
-                                 sort=["종가", "5일 이평선", "20일 이평선", "100일 이평선", "200일 이평선"]),
+                                 sort=["종가", "20일 이평선", "100일 이평선", "200일 이평선"]),
                 opacity=alt.condition(detail_selection, alt.value(1), alt.value(0.1)),
+                size=alt.Size("굵기:Q", legend=None, scale=alt.Scale(domain=[1.2, 2.5], range=[1.2, 2.5])),
                 tooltip=["날짜:T", "구분:N", alt.Tooltip("값:Q", format=",.0f")],
             )
             .add_params(detail_selection)
             .properties(height=400)
             .interactive()
         )
-        st.caption("💡 범례를 클릭하면 해당 선만 강조됩니다.")
+        st.caption("💡 범례를 클릭할 때마다 해당 선의 강조 여부가 토글됩니다 (예: 종가와 200일 이평선만 눌러서 비교 가능)")
         st.altair_chart(detail_chart, use_container_width=True)
 
     # --- 자산곡선 차트 (상위 K개) ---
@@ -207,12 +209,13 @@ else:
     chart_long = chart_long.rename(columns={chart_df.index.name or "index": "날짜"})
 
     y_scale = alt.Scale(type="log") if log_scale else alt.Scale(type="linear")
-    legend_selection = alt.selection_point(fields=["종목"], bind="legend")
+    legend_selection = alt.selection_point(fields=["종목"], bind="legend", toggle=True)
     line_chart = (
         alt.Chart(chart_long)
         .mark_line()
         .encode(
-            x=alt.X("날짜:T", title="날짜"),
+            x=alt.X("날짜:T", title="날짜",
+                    axis=alt.Axis(format="%Y-%m", tickCount="month", labelAngle=0, grid=True, gridDash=[])),
             y=alt.Y("평가금액:Q", scale=y_scale, title="평가금액"),
             color=alt.Color("종목:N", title="종목"),
             opacity=alt.condition(legend_selection, alt.value(1), alt.value(0.08)),
@@ -221,5 +224,5 @@ else:
         .add_params(legend_selection)
         .interactive()
     )
-    st.caption("💡 범례를 클릭하면 해당 선만 강조됩니다 (Shift+클릭으로 다중 선택)")
+    st.caption("💡 범례를 클릭할 때마다 해당 선의 강조 여부가 토글됩니다 (여러 개 클릭해 동시에 강조 가능)")
     st.altair_chart(line_chart, use_container_width=True)
