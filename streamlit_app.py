@@ -101,31 +101,84 @@ else:
     display_df = display_df.sort_values("cagr", ascending=False).reset_index(drop=True)
     top_k_df = display_df.head(int(k))
 
+    status_map = {True: "보유중 (이평선 위)", False: "청산상태 (이평선 아래)"}
+    number_col_config = {
+        "현재주가": st.column_config.NumberColumn(format="%,.0f"),
+        "시가총액": st.column_config.NumberColumn(format="%,.0f"),
+    }
+
     st.subheader(f"🏆 200일선 스크리닝 상위 {len(top_k_df)}개")
-    show = top_k_df[["ticker", "name", "above_ma", "deviation", "cagr", "mdd", "total_return", "n_trades", "market_cap"]].copy()
-    show["above_ma"] = show["above_ma"].map({True: "매수(위)", False: "현금(아래)"})
+    show = top_k_df[["ticker", "name", "above_ma", "current_price", "deviation", "cagr", "mdd", "total_return", "n_trades", "market_cap"]].copy()
+    show["above_ma"] = show["above_ma"].map(status_map)
     show["deviation"] = (show["deviation"] * 100).round(2)
     show["cagr"] = (show["cagr"] * 100).round(2)
     show["mdd"] = (show["mdd"] * 100).round(2)
     show["total_return"] = (show["total_return"] * 100).round(2)
-    show.columns = ["티커", "종목명", "현재상태", "이격도(%)", "CAGR(%)", "MDD(%)", "총수익률(%)", "매매횟수", "시가총액"]
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    show.columns = ["티커", "종목명", "현재상태", "현재주가", "이격도(%)", "CAGR(%)", "MDD(%)", "총수익률(%)", "매매횟수", "시가총액"]
+    st.dataframe(show, use_container_width=True, hide_index=True, column_config=number_col_config)
+    st.caption("💡 '현재상태'는 오늘 종가가 200일선 위/아래 어디에 있는지를 즉시(당일 교차) 기준으로 판정한 값입니다. "
+               "며칠간 유지되었는지를 확인하는 조건은 적용되어 있지 않습니다.")
 
     st.subheader("📋 전체 후보군 결과")
     st.caption(f"백테스트 완료 {len(full)}개 (200거래일 미만 데이터 종목 자동 제외)")
     show_full = full.copy()
-    show_full["above_ma"] = show_full["above_ma"].map({True: "매수(위)", False: "현금(아래)"})
+    show_full["above_ma"] = show_full["above_ma"].map(status_map)
     show_full["deviation"] = (show_full["deviation"] * 100).round(2)
     show_full["cagr"] = (show_full["cagr"] * 100).round(2)
     show_full["mdd"] = (show_full["mdd"] * 100).round(2)
     show_full["total_return"] = (show_full["total_return"] * 100).round(2)
     show_full = show_full.sort_values("cagr", ascending=False)
-    show_full = show_full[["ticker", "name", "above_ma", "deviation", "cagr", "mdd", "total_return", "n_trades", "market_cap"]]
-    show_full.columns = ["티커", "종목명", "현재상태", "이격도(%)", "CAGR(%)", "MDD(%)", "총수익률(%)", "매매횟수", "시가총액"]
-    st.dataframe(show_full, use_container_width=True, hide_index=True)
+    show_full = show_full[["ticker", "name", "above_ma", "current_price", "deviation", "cagr", "mdd", "total_return", "n_trades", "market_cap"]]
+    show_full.columns = ["티커", "종목명", "현재상태", "현재주가", "이격도(%)", "CAGR(%)", "MDD(%)", "총수익률(%)", "매매횟수", "시가총액"]
+    st.dataframe(show_full, use_container_width=True, hide_index=True, column_config=number_col_config)
 
     csv = full.to_csv(index=False).encode("utf-8-sig")
     st.download_button("결과 CSV 다운로드", csv, "ma_screener_result.csv", "text/csv")
+
+    # --- 종목별 상세 차트 (가격 + 5/20/100/200일 이평선) ---
+    st.subheader("🔍 종목 상세 차트")
+    name_map_top = dict(zip(top_k_df["ticker"], top_k_df["name"]))
+    selected_ticker = st.selectbox(
+        "차트를 볼 종목 선택",
+        options=top_k_df["ticker"].tolist(),
+        format_func=lambda t: f"{name_map_top.get(t, t)} ({t})",
+    )
+
+    if selected_ticker:
+        series = price_matrix[selected_ticker].dropna()
+        ma_windows = {"5일": 5, "20일": 20, "100일": 100, "200일": 200}
+
+        detail_df = pd.DataFrame({"날짜": series.index, "가격": "종가", "값": series.values})
+        detail_df = detail_df.rename(columns={"가격": "구분"})
+        chart_parts = [detail_df]
+        for label, w in ma_windows.items():
+            ma_series = series.rolling(w).mean().dropna()
+            part = pd.DataFrame({"날짜": ma_series.index, "구분": f"{label} 이평선", "값": ma_series.values})
+            chart_parts.append(part)
+
+        detail_long = pd.concat(chart_parts, ignore_index=True)
+
+        current_price_val = series.iloc[-1]
+        st.caption(f"현재가: {current_price_val:,.0f}")
+
+        detail_selection = alt.selection_point(fields=["구분"], bind="legend")
+        detail_chart = (
+            alt.Chart(detail_long)
+            .mark_line()
+            .encode(
+                x=alt.X("날짜:T", title="날짜"),
+                y=alt.Y("값:Q", title="가격", scale=alt.Scale(zero=False)),
+                color=alt.Color("구분:N", title="구분",
+                                 sort=["종가", "5일 이평선", "20일 이평선", "100일 이평선", "200일 이평선"]),
+                opacity=alt.condition(detail_selection, alt.value(1), alt.value(0.1)),
+                tooltip=["날짜:T", "구분:N", alt.Tooltip("값:Q", format=",.0f")],
+            )
+            .add_params(detail_selection)
+            .properties(height=400)
+            .interactive()
+        )
+        st.caption("💡 범례를 클릭하면 해당 선만 강조됩니다.")
+        st.altair_chart(detail_chart, use_container_width=True)
 
     # --- 자산곡선 차트 (상위 K개) ---
     st.subheader("📈 상위 종목 자산곡선 (200일선 전략 백테스트)")
